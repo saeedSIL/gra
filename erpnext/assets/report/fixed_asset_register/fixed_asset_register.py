@@ -89,6 +89,7 @@ def get_data(filters):
 			"department",
 			"company",
 			"cost_center",
+			"project",
 			"calculate_depreciation",
 			"purchase_receipt",
 			"asset_category",
@@ -128,6 +129,7 @@ def get_data(filters):
 			"status": asset.status,
 			"department": asset.department,
 			"cost_center": asset.cost_center,
+			"project": asset.project,
 			"vendor_name": pr_supplier_map.get(asset.purchase_receipt)
 			or pi_supplier_map.get(asset.purchase_invoice),
 			"gross_purchase_amount": asset.gross_purchase_amount,
@@ -398,6 +400,13 @@ def get_columns(filters):
 			"fieldtype": "Link",
 			"fieldname": "cost_center",
 			"options": "Cost Center",
+			"width": 100,
+		},
+		{
+			"label": _("Project"),
+			"fieldtype": "Link",
+			"fieldname": "project",
+			"options": "Project",
 			"width": 100,
 		},
 		{
