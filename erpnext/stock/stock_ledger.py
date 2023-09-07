@@ -74,6 +74,7 @@ def make_sl_entries(sl_entries, allow_negative_stock=False, via_landed_cost_vouc
 				sle_doc = make_entry(sle, allow_negative_stock, via_landed_cost_voucher)
 
 			args = sle_doc.as_dict()
+			args["allow_zero_valuation_rate"] = sle.get("allow_zero_valuation_rate") or False
 
 			if sle.get("voucher_type") == "Stock Reconciliation":
 				# preserve previous_qty_after_transaction for qty reposting
@@ -109,6 +110,7 @@ def repost_current_voucher(args, allow_negative_stock=False, via_landed_cost_vou
 					"sle_id": args.get("name"),
 					"creation": args.get("creation"),
 				},
+				allow_zero_rate=args.get("allow_zero_valuation_rate") or False,
 				allow_negative_stock=allow_negative_stock,
 				via_landed_cost_voucher=via_landed_cost_voucher,
 			)
@@ -197,6 +199,11 @@ def make_entry(args, allow_negative_stock=False, via_landed_cost_voucher=False):
 	sle.allow_negative_stock = allow_negative_stock
 	sle.via_landed_cost_voucher = via_landed_cost_voucher
 	sle.submit()
+
+	# Added to handle the case when the stock ledger entry is created from the repostig
+	if args.get("creation_time") and args.get("voucher_type") == "Stock Reconciliation":
+		sle.db_set("creation", args.get("creation_time"))
+
 	return sle
 
 
@@ -288,6 +295,8 @@ def update_args_in_repost_item_valuation(
 	frappe.publish_realtime(
 		"item_reposting_progress",
 		{"name": doc.name, "items_to_be_repost": json.dumps(args, default=str), "current_index": index},
+		doctype=doc.doctype,
+		docname=doc.name,
 	)
 
 
@@ -513,6 +522,7 @@ class update_entries_after(object):
 	def update_distinct_item_warehouses(self, dependant_sle):
 		key = (dependant_sle.item_code, dependant_sle.warehouse)
 		val = frappe._dict({"sle": dependant_sle})
+
 		if key not in self.distinct_item_warehouses:
 			self.distinct_item_warehouses[key] = val
 			self.new_items_found = True
@@ -520,10 +530,28 @@ class update_entries_after(object):
 			existing_sle_posting_date = (
 				self.distinct_item_warehouses[key].get("sle", {}).get("posting_date")
 			)
+
+			dependent_voucher_detail_nos = self.get_dependent_voucher_detail_nos(key)
+
 			if getdate(dependant_sle.posting_date) < getdate(existing_sle_posting_date):
 				val.sle_changed = True
+				dependent_voucher_detail_nos.append(dependant_sle.voucher_detail_no)
+				val.dependent_voucher_detail_nos = dependent_voucher_detail_nos
 				self.distinct_item_warehouses[key] = val
 				self.new_items_found = True
+			elif dependant_sle.voucher_detail_no not in set(dependent_voucher_detail_nos):
+				# Future dependent voucher needs to be repost to get the correct stock value
+				# If dependent voucher has not reposted, then add it to the list
+				dependent_voucher_detail_nos.append(dependant_sle.voucher_detail_no)
+				self.new_items_found = True
+				val.dependent_voucher_detail_nos = dependent_voucher_detail_nos
+				self.distinct_item_warehouses[key] = val
+
+	def get_dependent_voucher_detail_nos(self, key):
+		if "dependent_voucher_detail_nos" not in self.distinct_item_warehouses[key]:
+			self.distinct_item_warehouses[key].dependent_voucher_detail_nos = []
+
+		return self.distinct_item_warehouses[key].dependent_voucher_detail_nos
 
 	def process_sle(self, sle):
 		from erpnext.stock.doctype.serial_no.serial_no import get_serial_nos
@@ -543,12 +571,7 @@ class update_entries_after(object):
 		if not self.args.get("sle_id"):
 			self.get_dynamic_incoming_outgoing_rate(sle)
 
-		if (
-			sle.voucher_type == "Stock Reconciliation"
-			and sle.batch_no
-			and sle.voucher_detail_no
-			and sle.actual_qty < 0
-		):
+		if sle.voucher_type == "Stock Reconciliation" and sle.batch_no and sle.voucher_detail_no:
 			self.reset_actual_qty_for_stock_reco(sle)
 
 		if (
@@ -562,7 +585,7 @@ class update_entries_after(object):
 		if get_serial_nos(sle.serial_no):
 			self.get_serialized_values(sle)
 			self.wh_data.qty_after_transaction += flt(sle.actual_qty)
-			if sle.voucher_type == "Stock Reconciliation":
+			if sle.voucher_type == "Stock Reconciliation" and not sle.batch_no:
 				self.wh_data.qty_after_transaction = sle.qty_after_transaction
 
 			self.wh_data.stock_value = flt(self.wh_data.qty_after_transaction) * flt(
@@ -613,14 +636,14 @@ class update_entries_after(object):
 			self.update_outgoing_rate_on_transaction(sle)
 
 	def reset_actual_qty_for_stock_reco(self, sle):
-		current_qty = frappe.get_cached_value(
-			"Stock Reconciliation Item", sle.voucher_detail_no, "current_qty"
-		)
+		doc = frappe.get_cached_doc("Stock Reconciliation", sle.voucher_no)
+		doc.recalculate_current_qty(sle.voucher_detail_no, sle.creation, sle.actual_qty >= 0)
 
-		if current_qty:
-			sle.actual_qty = current_qty * -1
-		elif current_qty == 0:
-			sle.is_cancelled = 1
+		if sle.actual_qty < 0:
+			sle.actual_qty = (
+				flt(frappe.db.get_value("Stock Reconciliation Item", sle.voucher_detail_no, "current_qty"))
+				* -1
+			)
 
 	def validate_negative_stock(self, sle):
 		"""
@@ -1255,8 +1278,11 @@ def get_sle_by_voucher_detail_no(voucher_detail_no, excluded_sle=None):
 		[
 			"item_code",
 			"warehouse",
+			"actual_qty",
+			"qty_after_transaction",
 			"posting_date",
 			"posting_time",
+			"voucher_detail_no",
 			"timestamp(posting_date, posting_time) as timestamp",
 		],
 		as_dict=1,
@@ -1409,8 +1435,6 @@ def update_qty_in_future_sle(args, allow_negative_stock=False):
 	next_stock_reco_detail = get_next_stock_reco(args)
 	if next_stock_reco_detail:
 		detail = next_stock_reco_detail[0]
-		if detail.batch_no:
-			regenerate_sle_for_batch_stock_reco(detail)
 
 		# add condition to update SLEs before this date & time
 		datetime_limit_condition = get_datetime_limit_condition(detail)
@@ -1437,16 +1461,6 @@ def update_qty_in_future_sle(args, allow_negative_stock=False):
 	)
 
 	validate_negative_qty_in_future_sle(args, allow_negative_stock)
-
-
-def regenerate_sle_for_batch_stock_reco(detail):
-	doc = frappe.get_cached_doc("Stock Reconciliation", detail.voucher_no)
-	doc.recalculate_current_qty(detail.item_code, detail.batch_no)
-
-	if not frappe.db.exists(
-		"Repost Item Valuation", {"voucher_no": doc.name, "status": "Queued", "docstatus": "1"}
-	):
-		doc.repost_future_sle_and_gle(force=True)
 
 
 def get_stock_reco_qty_shift(args):

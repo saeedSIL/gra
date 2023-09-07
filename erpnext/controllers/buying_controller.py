@@ -410,17 +410,22 @@ class BuyingController(SubcontractingController):
 			# validate rate with ref PR
 
 	def validate_rejected_warehouse(self):
-		for d in self.get("items"):
-			if flt(d.rejected_qty) and not d.rejected_warehouse:
+		for item in self.get("items"):
+			if flt(item.rejected_qty) and not item.rejected_warehouse:
 				if self.rejected_warehouse:
-					d.rejected_warehouse = self.rejected_warehouse
+					item.rejected_warehouse = self.rejected_warehouse
 
-				if not d.rejected_warehouse:
+				if not item.rejected_warehouse:
 					frappe.throw(
-						_("Row #{0}: Rejected Warehouse is mandatory against rejected Item {1}").format(
-							d.idx, d.item_code
+						_("Row #{0}: Rejected Warehouse is mandatory for the rejected Item {1}").format(
+							item.idx, item.item_code
 						)
 					)
+
+			if item.get("rejected_warehouse") and (item.get("rejected_warehouse") == item.get("warehouse")):
+				frappe.throw(
+					_("Row #{0}: Accepted Warehouse and Rejected Warehouse cannot be same").format(item.idx)
+				)
 
 	# validate accepted and rejected qty
 	def validate_accepted_rejected_qty(self):
@@ -470,6 +475,10 @@ class BuyingController(SubcontractingController):
 			if d.item_code not in stock_items:
 				continue
 
+			rejected_qty = 0.0
+			if flt(d.rejected_qty) != 0:
+				rejected_qty = flt(flt(d.rejected_qty) * flt(d.conversion_factor), d.precision("stock_qty"))
+
 			if d.warehouse:
 				pr_qty = flt(flt(d.qty) * flt(d.conversion_factor), d.precision("stock_qty"))
 
@@ -489,6 +498,11 @@ class BuyingController(SubcontractingController):
 								"dependant_sle_voucher_detail_no": d.name,
 							},
 						)
+
+						if flt(rejected_qty) != 0:
+							from_warehouse_sle["actual_qty"] += -1 * rejected_qty
+							if d.rejected_serial_no:
+								from_warehouse_sle["serial_no"] += "\n" + cstr(d.rejected_serial_no).strip()
 
 						sl_entries.append(from_warehouse_sle)
 
@@ -515,6 +529,7 @@ class BuyingController(SubcontractingController):
 								else 0,
 							}
 						)
+
 					sl_entries.append(sle)
 
 					if d.from_warehouse and (
@@ -525,23 +540,30 @@ class BuyingController(SubcontractingController):
 							d, {"actual_qty": -1 * pr_qty, "warehouse": d.from_warehouse, "recalculate_rate": 1}
 						)
 
+						if flt(rejected_qty) != 0:
+							from_warehouse_sle["actual_qty"] += -1 * rejected_qty
+							if d.rejected_serial_no:
+								from_warehouse_sle["serial_no"] += "\n" + cstr(d.rejected_serial_no).strip()
+
 						sl_entries.append(from_warehouse_sle)
 
-			if flt(d.rejected_qty) != 0:
+			if flt(rejected_qty) != 0:
 				sl_entries.append(
 					self.get_sl_entries(
 						d,
 						{
 							"warehouse": d.rejected_warehouse,
-							"actual_qty": flt(flt(d.rejected_qty) * flt(d.conversion_factor), d.precision("stock_qty")),
+							"actual_qty": rejected_qty,
 							"serial_no": cstr(d.rejected_serial_no).strip(),
 							"incoming_rate": 0.0,
+							"allow_zero_valuation_rate": True,
 						},
 					)
 				)
 
 		if self.get("is_old_subcontracting_flow"):
 			self.make_sl_entries_for_supplier_warehouse(sl_entries)
+
 		self.make_sl_entries(
 			sl_entries,
 			allow_negative_stock=allow_negative_stock,
@@ -709,6 +731,7 @@ class BuyingController(SubcontractingController):
 				"asset_quantity": row.qty if is_grouped_asset else 0,
 				"purchase_receipt": self.name if self.doctype == "Purchase Receipt" else None,
 				"purchase_invoice": self.name if self.doctype == "Purchase Invoice" else None,
+				"cost_center": row.cost_center,
 			}
 		)
 
