@@ -24,7 +24,7 @@ class TestAccountsReceivable(AccountsTestMixin, FrappeTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
-	def test_accounts_receivable_with_supplier(self):
+	def test_accounts_payable_for_foreign_currency_supplier(self):
 		pi = self.create_purchase_invoice(do_not_submit=True)
 		pi.currency = "USD"
 		pi.conversion_rate = 80
@@ -34,7 +34,7 @@ class TestAccountsReceivable(AccountsTestMixin, FrappeTestCase):
 		filters = {
 			"company": self.company,
 			"party_type": "Supplier",
-			"party": self.supplier,
+			"party": [self.supplier],
 			"report_date": today(),
 			"range1": 30,
 			"range2": 60,

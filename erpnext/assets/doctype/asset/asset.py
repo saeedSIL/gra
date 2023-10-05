@@ -40,6 +40,7 @@ class Asset(AccountsController):
 		self.validate_item()
 		self.validate_cost_center()
 		self.set_missing_values()
+		self.validate_finance_books()
 		if not self.split_from:
 			self.prepare_depreciation_data()
 		self.validate_gross_and_purchase_amount()
@@ -203,14 +204,37 @@ class Asset(AccountsController):
 			self.asset_category = frappe.get_cached_value("Item", self.item_code, "asset_category")
 
 		if self.item_code and not self.get("finance_books"):
-			finance_books = get_item_details(self.item_code, self.asset_category)
+			finance_books = get_item_details(
+				self.item_code, self.asset_category, self.gross_purchase_amount
+			)
 			self.set("finance_books", finance_books)
+
+	def validate_finance_books(self):
+		if not self.calculate_depreciation or len(self.finance_books) == 1:
+			return
+
+		finance_books = set()
+
+		for d in self.finance_books:
+			if d.finance_book in finance_books:
+				frappe.throw(
+					_("Row #{}: Please use a different Finance Book.").format(d.idx),
+					title=_("Duplicate Finance Book"),
+				)
+			else:
+				finance_books.add(d.finance_book)
+
+			if not d.finance_book:
+				frappe.throw(
+					_("Row #{}: Finance Book should not be empty since you're using multiple.").format(d.idx),
+					title=_("Missing Finance Book"),
+				)
 
 	def validate_asset_values(self):
 		if not self.asset_category:
 			self.asset_category = frappe.get_cached_value("Item", self.item_code, "asset_category")
 
-		if not flt(self.gross_purchase_amount):
+		if not flt(self.gross_purchase_amount) and not self.is_composite_asset:
 			frappe.throw(_("Gross Purchase Amount is mandatory"), frappe.MandatoryError)
 
 		if is_cwip_accounting_enabled(self.asset_category):
@@ -1143,6 +1167,15 @@ def create_asset_repair(asset, asset_name):
 
 
 @frappe.whitelist()
+def create_asset_capitalization(asset):
+	asset_capitalization = frappe.new_doc("Asset Capitalization")
+	asset_capitalization.update(
+		{"target_asset": asset, "capitalization_method": "Choose a WIP composite asset"}
+	)
+	return asset_capitalization
+
+
+@frappe.whitelist()
 def create_asset_value_adjustment(asset, asset_category, company):
 	asset_value_adjustment = frappe.new_doc("Asset Value Adjustment")
 	asset_value_adjustment.update(
@@ -1173,7 +1206,7 @@ def transfer_asset(args):
 
 
 @frappe.whitelist()
-def get_item_details(item_code, asset_category):
+def get_item_details(item_code, asset_category, gross_purchase_amount):
 	asset_category_doc = frappe.get_doc("Asset Category", asset_category)
 	books = []
 	for d in asset_category_doc.finance_books:
@@ -1183,7 +1216,11 @@ def get_item_details(item_code, asset_category):
 				"depreciation_method": d.depreciation_method,
 				"total_number_of_depreciations": d.total_number_of_depreciations,
 				"frequency_of_depreciation": d.frequency_of_depreciation,
-				"start_date": nowdate(),
+				"daily_depreciation": d.daily_depreciation,
+				"salvage_value_percentage": d.salvage_value_percentage,
+				"expected_value_after_useful_life": flt(gross_purchase_amount)
+				* flt(d.salvage_value_percentage / 100),
+				"depreciation_start_date": d.depreciation_start_date or nowdate(),
 			}
 		)
 
@@ -1363,26 +1400,41 @@ def get_straight_line_or_manual_depr_amount(
 			daily_depr_amount = (
 				flt(row.value_after_depreciation) - flt(row.expected_value_after_useful_life)
 			) / date_diff(
-				add_months(
-					row.depreciation_start_date,
-					flt(row.total_number_of_depreciations - asset.number_of_depreciations_booked)
-					* row.frequency_of_depreciation,
-				),
-				add_months(
-					row.depreciation_start_date,
-					flt(
-						row.total_number_of_depreciations
-						- asset.number_of_depreciations_booked
-						- number_of_pending_depreciations
+				get_last_day(
+					add_months(
+						row.depreciation_start_date,
+						flt(row.total_number_of_depreciations - asset.number_of_depreciations_booked - 1)
+						* row.frequency_of_depreciation,
 					)
-					* row.frequency_of_depreciation,
+				),
+				add_days(
+					get_last_day(
+						add_months(
+							row.depreciation_start_date,
+							flt(
+								row.total_number_of_depreciations
+								- asset.number_of_depreciations_booked
+								- number_of_pending_depreciations
+								- 1
+							)
+							* row.frequency_of_depreciation,
+						)
+					),
+					1,
 				),
 			)
-			to_date = add_months(row.depreciation_start_date, schedule_idx * row.frequency_of_depreciation)
-			from_date = add_months(
-				row.depreciation_start_date, (schedule_idx - 1) * row.frequency_of_depreciation
+
+			to_date = get_last_day(
+				add_months(row.depreciation_start_date, schedule_idx * row.frequency_of_depreciation)
 			)
-			return daily_depr_amount * date_diff(to_date, from_date)
+			from_date = add_days(
+				get_last_day(
+					add_months(row.depreciation_start_date, (schedule_idx - 1) * row.frequency_of_depreciation)
+				),
+				1,
+			)
+
+			return daily_depr_amount * (date_diff(to_date, from_date) + 1)
 		else:
 			return (
 				flt(row.value_after_depreciation) - flt(row.expected_value_after_useful_life)
@@ -1395,18 +1447,29 @@ def get_straight_line_or_manual_depr_amount(
 				- flt(asset.opening_accumulated_depreciation)
 				- flt(row.expected_value_after_useful_life)
 			) / date_diff(
-				add_months(
-					row.depreciation_start_date,
-					flt(row.total_number_of_depreciations - asset.number_of_depreciations_booked)
-					* row.frequency_of_depreciation,
+				get_last_day(
+					add_months(
+						row.depreciation_start_date,
+						flt(row.total_number_of_depreciations - asset.number_of_depreciations_booked - 1)
+						* row.frequency_of_depreciation,
+					)
 				),
-				row.depreciation_start_date,
+				add_days(
+					get_last_day(add_months(row.depreciation_start_date, -1 * row.frequency_of_depreciation)), 1
+				),
 			)
-			to_date = add_months(row.depreciation_start_date, schedule_idx * row.frequency_of_depreciation)
-			from_date = add_months(
-				row.depreciation_start_date, (schedule_idx - 1) * row.frequency_of_depreciation
+
+			to_date = get_last_day(
+				add_months(row.depreciation_start_date, schedule_idx * row.frequency_of_depreciation)
 			)
-			return daily_depr_amount * date_diff(to_date, from_date)
+			from_date = add_days(
+				get_last_day(
+					add_months(row.depreciation_start_date, (schedule_idx - 1) * row.frequency_of_depreciation)
+				),
+				1,
+			)
+
+			return daily_depr_amount * (date_diff(to_date, from_date) + 1)
 		else:
 			return (
 				flt(asset.gross_purchase_amount)
