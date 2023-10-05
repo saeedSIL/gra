@@ -265,10 +265,10 @@ class Asset(AccountsController):
 		if self.is_existing_asset:
 			return
 
-		if self.available_for_use_date and getdate(self.available_for_use_date) < getdate(
-			self.purchase_date
-		):
-			frappe.throw(_("Available-for-use Date should be after purchase date"))
+		# if self.available_for_use_date and getdate(self.available_for_use_date) < getdate(
+		# 	self.purchase_date
+		# ):
+		# 	frappe.throw(_("Available-for-use Date should be after purchase date"))
 
 	def validate_gross_and_purchase_amount(self):
 		if self.is_existing_asset:
@@ -612,7 +612,7 @@ class Asset(AccountsController):
 		if days < total_days:
 			has_pro_rata = True
 
-		return has_pro_rata
+		return False
 
 	def get_modified_available_for_use_date(self, row, wdv_or_dd_non_yearly=False):
 		if wdv_or_dd_non_yearly:
@@ -668,23 +668,23 @@ class Asset(AccountsController):
 					title=_("Invalid Schedule"),
 				)
 
-		if row.depreciation_start_date and getdate(row.depreciation_start_date) < getdate(
-			self.purchase_date
-		):
-			frappe.throw(
-				_("Depreciation Row {0}: Next Depreciation Date cannot be before Purchase Date").format(
-					row.idx
-				)
-			)
+		# if row.depreciation_start_date and getdate(row.depreciation_start_date) < getdate(
+		# 	self.purchase_date
+		# ):
+		# 	frappe.throw(
+		# 		_("Depreciation Row {0}: Next Depreciation Date cannot be before Purchase Date").format(
+		# 			row.idx
+		# 		)
+		# 	)
 
-		if row.depreciation_start_date and getdate(row.depreciation_start_date) < getdate(
-			self.available_for_use_date
-		):
-			frappe.throw(
-				_(
-					"Depreciation Row {0}: Next Depreciation Date cannot be before Available-for-use Date"
-				).format(row.idx)
-			)
+		# if row.depreciation_start_date and getdate(row.depreciation_start_date) < getdate(
+		# 	self.available_for_use_date
+		# ):
+		# 	frappe.throw(
+		# 		_(
+		# 			"Depreciation Row {0}: Next Depreciation Date cannot be before Available-for-use Date"
+		# 		).format(row.idx)
+		# 	)
 
 	# to ensure that final accumulated depreciation amount is accurate
 	def get_adjusted_depreciation_amount(
