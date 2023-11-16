@@ -602,6 +602,8 @@ def make_reverse_gl_entries(
 			new_gle["remarks"] = "On cancellation of " + new_gle["voucher_no"]
 			new_gle["is_cancelled"] = 1
 
+			new_gle['posting_date'] = frappe.utils.getdate()
+
 			if new_gle["debit"] or new_gle["credit"]:
 				make_entry(new_gle, adv_adj, "Yes")
 
