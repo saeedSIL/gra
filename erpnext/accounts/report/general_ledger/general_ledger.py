@@ -184,16 +184,32 @@ def get_gl_entries(filters, accounting_dimensions):
 
 	gl_entries = frappe.db.sql(
 		"""
-		select
-			name as gl_entry, posting_date, account, party_type, party,
-			voucher_type, voucher_no, {dimension_fields}
-			cost_center, project,
-			against_voucher_type, against_voucher, account_currency,
-			remarks, against, is_opening, creation {select_fields}
-		from `tabGL Entry`
-		where company=%(company)s {conditions}
+		SELECT
+			gl.name AS gl_entry, gl.posting_date, gl.account, gl.party_type, gl.party,
+			gl.voucher_type, gl.voucher_no, {dimension_fields}
+			gl.cost_center, gl.project,
+			gl.against_voucher_type, gl.against_voucher, gl.account_currency,
+			gl.remarks, gl.against, gl.is_opening, gl.creation {select_fields},
+			COALESCE(submitted.comment_email, '') AS approver,
+			COALESCE(requested.comment_email, '') AS creator,
+			COALESCE(submitted_user.full_name, '') AS approver_full_name,
+			COALESCE(requested_user.full_name, '') AS creator_full_name
+		FROM `tabGL Entry` gl
+		LEFT JOIN `tabComment` submitted
+			ON submitted.reference_doctype = 'Journal Entry'
+			AND submitted.reference_name = gl.voucher_no
+			AND submitted.content = 'Submitted'
+		LEFT JOIN `tabComment` requested
+			ON requested.reference_doctype = 'Journal Entry'
+			AND requested.reference_name = gl.voucher_no
+			AND requested.content = 'Requested'
+		LEFT JOIN `tabUser` submitted_user
+			ON submitted_user.email = submitted.comment_email
+		LEFT JOIN `tabUser` requested_user
+			ON requested_user.email = requested.comment_email
+		WHERE gl.company=%(company)s {conditions}
 		{order_by_statement}
-	""".format(
+		""".format(
 			dimension_fields=dimension_fields,
 			select_fields=select_fields,
 			conditions=get_conditions(filters),
@@ -567,6 +583,8 @@ def get_columns(filters):
 			"options": "voucher_type",
 			"width": 180,
 		},
+		{"label": _("Journal Entry Creator"), "fieldname": "creator_full_name", "width":200},
+		{"label": _("Journal Entry Approver"), "fieldname": "approver_full_name", "width":200},
 		{"label": _("Against Account"), "fieldname": "against", "width": 120},
 		{"label": _("Party Type"), "fieldname": "party_type", "width": 100},
 		{"label": _("Party"), "fieldname": "party", "width": 100},
