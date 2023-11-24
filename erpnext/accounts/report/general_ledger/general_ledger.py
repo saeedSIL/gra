@@ -193,7 +193,8 @@ def get_gl_entries(filters, accounting_dimensions):
 			COALESCE(submitted.comment_email, '') AS approver,
 			COALESCE(requested.comment_email, '') AS creator,
 			COALESCE(submitted_user.full_name, '') AS approver_full_name,
-			COALESCE(requested_user.full_name, '') AS creator_full_name
+			COALESCE(requested_user.full_name, '') AS creator_full_name,
+			COALESCE(ba.parent, '') AS budget_account_parent
 		FROM `tabGL Entry` gl
 		LEFT JOIN `tabComment` submitted
 			ON submitted.reference_doctype = 'Journal Entry'
@@ -207,6 +208,8 @@ def get_gl_entries(filters, accounting_dimensions):
 			ON submitted_user.email = submitted.comment_email
 		LEFT JOIN `tabUser` requested_user
 			ON requested_user.email = requested.comment_email
+		LEFT JOIN `tabBudget Account` ba
+			ON ba.account = gl.account
 		WHERE gl.company=%(company)s {conditions}
 		{order_by_statement}
 		""".format(
@@ -218,7 +221,6 @@ def get_gl_entries(filters, accounting_dimensions):
 		filters,
 		as_dict=1,
 	)
-
 	if filters.get("presentation_currency"):
 		return convert_to_presentation_currency(gl_entries, currency_map)
 	else:
@@ -549,13 +551,20 @@ def get_columns(filters):
 			"options": "GL Entry",
 			"hidden": 1,
 		},
-		{"label": _("Posting Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
+		{"label": _("Posting Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 140},
 		{
 			"label": _("Account"),
 			"fieldname": "account",
 			"fieldtype": "Link",
 			"options": "Account",
-			"width": 180,
+			"width": 200,
+		},
+		{
+			"label": _("Budget"),
+			"fieldname": "budget_account_parent",
+			"fieldtype": "Link",
+			"options": "Budget",
+			"width": 200,
 		},
 		{
 			"label": _("Debit ({0})").format(currency),
@@ -585,10 +594,10 @@ def get_columns(filters):
 		},
 		{"label": _("Journal Entry Creator"), "fieldname": "creator_full_name", "width":200},
 		{"label": _("Journal Entry Approver"), "fieldname": "approver_full_name", "width":200},
-		{"label": _("Against Account"), "fieldname": "against", "width": 120},
+		{"label": _("Against Account"), "fieldname": "against", "width": 180},
 		{"label": _("Party Type"), "fieldname": "party_type", "width": 100},
-		{"label": _("Party"), "fieldname": "party", "width": 100},
-		{"label": _("Project"), "options": "Project", "fieldname": "project", "width": 100},
+		{"label": _("Party"), "fieldname": "party", "width": 180},
+		{"label": _("Project"), "options": "Project", "fieldname": "project", "width": 180},
 	]
 
 	if filters.get("include_dimensions"):
@@ -597,20 +606,20 @@ def get_columns(filters):
 				{"label": _(dim.label), "options": dim.label, "fieldname": dim.fieldname, "width": 100}
 			)
 		columns.append(
-			{"label": _("Cost Center"), "options": "Cost Center", "fieldname": "cost_center", "width": 100}
+			{"label": _("Cost Center"), "options": "Cost Center", "fieldname": "cost_center", "width": 120}
 		)
 
 	columns.extend(
 		[
-			{"label": _("Against Voucher Type"), "fieldname": "against_voucher_type", "width": 100},
+			{"label": _("Against Voucher Type"), "fieldname": "against_voucher_type", "width": 180},
 			{
 				"label": _("Against Voucher"),
 				"fieldname": "against_voucher",
 				"fieldtype": "Dynamic Link",
 				"options": "against_voucher_type",
-				"width": 100,
+				"width": 180,
 			},
-			{"label": _("Supplier Invoice No"), "fieldname": "bill_no", "fieldtype": "Data", "width": 100},
+			{"label": _("Supplier Invoice No"), "fieldname": "bill_no", "fieldtype": "Data", "width": 180},
 			{"label": _("Remarks"), "fieldname": "remarks", "width": 400},
 		]
 	)
