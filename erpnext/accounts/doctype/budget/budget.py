@@ -67,12 +67,13 @@ class Budget(Document):
 					frappe.throw(_("Budget cannot be assigned against Group Account {0}").format(d.account))
 				elif account_details.company != self.company:
 					frappe.throw(_("Account {0} does not belongs to company {1}").format(d.account, self.company))
-				elif account_details.report_type != "Profit and Loss":
-					frappe.throw(
-						_("Budget cannot be assigned against {0}, as it's not an Income or Expense account").format(
-							d.account
-						)
-					)
+				elif account_details.report_type != "Profit and Loss" :
+					# frappe.throw(
+					# 	_("Budget cannot be assigned against {0}, as it's not an Income or Expense account").format(
+					# 		d.account
+					# 	)
+					# )
+					pass
 
 				if d.account in account_list:
 					frappe.throw(_("Account {0} has been entered multiple times").format(d.account))
@@ -142,7 +143,7 @@ def validate_expense_against_budget(args, expense_amount=0):
 		if (
 			args.get(budget_against)
 			and args.account
-			and frappe.db.get_value("Account", {"name": args.account, "root_type": "Expense"})
+			and frappe.db.get_value("Account", {"name": args.account})
 		):
 
 			doctype = dimension.get("document_type")
@@ -420,6 +421,19 @@ def get_item_details(args):
 		return cost_center, expense_account
 
 	if args.item_code:
+		item = frappe.get_doc("Item",args.item_code)
+		if item.is_fixed_asset:
+			if not args.cost_center:
+				frappe.throw("Cost Center Mandatory")
+			category_accounts = frappe.db.get_value(
+				"Asset Category Account",
+			{"parent": item.asset_category, "company_name": args.get("company")},
+			["fixed_asset_account"],
+			)
+			expense_account = category_accounts
+			cost_center = args.cost_center
+			return cost_center, expense_account
+
 		item_defaults = frappe.db.get_value(
 			"Item Default",
 			{"parent": args.item_code, "company": args.get("company")},
@@ -429,9 +443,10 @@ def get_item_details(args):
 			cost_center, expense_account = item_defaults
 
 	if not (cost_center and expense_account):
+		
 		for doctype in ["Item Group", "Company"]:
 			data = get_expense_cost_center(doctype, args)
-
+			print(data)
 			if not cost_center and data:
 				cost_center = data[0]
 
