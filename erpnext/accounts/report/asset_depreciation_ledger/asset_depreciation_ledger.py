@@ -6,98 +6,92 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-
 def execute(filters=None):
-	columns, data = get_columns(), get_data(filters)
-	return columns, data
-
+    columns, data = get_columns(), get_data(filters)
+    return columns, data
 
 def get_data(filters):
-	data = []
-	depreciation_accounts = frappe.db.sql_list(
-		""" select name from tabAccount
-		where ifnull(account_type, '') = 'Depreciation' """
-	)
+    data = []
 
-	filters_data = [
-		["company", "=", filters.get("company")],
-		["posting_date", ">=", filters.get("from_date")],
-		["posting_date", "<=", filters.get("to_date")],
-		["against_voucher_type", "=", "Asset"],
-		["account", "in", depreciation_accounts],
-		["is_cancelled", "=", 0],
-	]
+    depreciation_accounts = frappe.db.sql_list(
+        """SELECT name FROM tabAccount WHERE IFNULL(account_type, '') = 'Depreciation'"""
+    )
 
-	if filters.get("asset"):
-		filters_data.append(["against_voucher", "=", filters.get("asset")])
+    filters_data = [
+        ["company", "=", filters.get("company")],
+        ["posting_date", ">=", filters.get("from_date")],
+        ["posting_date", "<=", filters.get("to_date")],
+        ["against_voucher_type", "=", "Asset"],
+        ["account", "in", depreciation_accounts],
+        ["is_cancelled", "=", 0],
+    ]
 
-	if filters.get("asset_category"):
+    if filters.get("asset"):
+        filters_data.append(["against_voucher", "=", filters.get("asset")])
 
-		assets = frappe.db.sql_list(
-			"""select name from tabAsset
-			where asset_category = %s and docstatus=1""",
-			filters.get("asset_category"),
-		)
+    if filters.get("asset_category"):
+        assets = frappe.db.sql_list(
+            """SELECT name FROM tabAsset WHERE asset_category = %s AND docstatus=1""",
+            filters.get("asset_category"),
+        )
+        filters_data.append(["against_voucher", "in", assets])
 
-		filters_data.append(["against_voucher", "in", assets])
+    if filters.get("finance_book"):
+        filters_data.append(["finance_book", "in", ["", filters.get("finance_book")]])
 
-	if filters.get("finance_book"):
-		filters_data.append(["finance_book", "in", ["", filters.get("finance_book")]])
+    gl_entries = frappe.get_all(
+        "GL Entry",
+        filters=filters_data,
+        fields=["against_voucher", "debit_in_account_currency as debit", "voucher_no", "posting_date"],
+        order_by="against_voucher, posting_date",
+    )
 
-	gl_entries = frappe.get_all(
-		"GL Entry",
-		filters=filters_data,
-		fields=["against_voucher", "debit_in_account_currency as debit", "voucher_no", "posting_date"],
-		order_by="against_voucher, posting_date",
-	)
+    if not gl_entries:
+        return data
 
-	if not gl_entries:
-		return data
+    assets = [d.against_voucher for d in gl_entries]
+    assets_details = get_assets_details(assets)
 
-	assets = [d.against_voucher for d in gl_entries]
-	assets_details = get_assets_details(assets)
+    for d in gl_entries:
+        asset_data = assets_details.get(d.against_voucher)
+        if asset_data:
+            if not asset_data.get("accumulated_depreciation_amount"):
+                asset_data.accumulated_depreciation_amount = d.debit
+            else:
+                asset_data.accumulated_depreciation_amount += d.debit
 
-	for d in gl_entries:
-		asset_data = assets_details.get(d.against_voucher)
-		if asset_data:
-			if not asset_data.get("accumulated_depreciation_amount"):
-				asset_data.accumulated_depreciation_amount = d.debit
-			else:
-				asset_data.accumulated_depreciation_amount += d.debit
+            row = frappe._dict(asset_data)
+            row.update(
+                {
+                    "depreciation_amount": d.debit,
+                    "depreciation_date": asset_data.purchase_date,
+                    "amount_after_depreciation": (
+                        flt(row.gross_purchase_amount) - flt(row.accumulated_depreciation_amount)
+                    ),
+                    "depreciation_entry": d.voucher_no,
+                }
+            )
 
-			row = frappe._dict(asset_data)
-			row.update(
-				{
-					"depreciation_amount": d.debit,
-					"depreciation_date": d.posting_date,
-					"amount_after_depreciation": (
-						flt(row.gross_purchase_amount) - flt(row.accumulated_depreciation_amount)
-					),
-					"depreciation_entry": d.voucher_no,
-				}
-			)
+            data.append(row)
 
-			data.append(row)
-
-	return data
-
+    return data
 
 def get_assets_details(assets):
-	assets_details = {}
+    assets_details = {}
 
-	fields = [
-		"name as asset",
-		"gross_purchase_amount",
-		"asset_category",
-		"status",
-		"depreciation_method",
-		"purchase_date",
-	]
+    fields = [
+        "name as asset",
+        "gross_purchase_amount",
+        "asset_category",
+        "status",
+        "depreciation_method",
+        "purchase_date",
+    ]
 
-	for d in frappe.get_all("Asset", fields=fields, filters={"name": ("in", assets)}):
-		assets_details.setdefault(d.asset, d)
+    for d in frappe.get_all("Asset", fields=fields, filters={"name": ("in", assets)}):
+        assets_details.setdefault(d.asset, d)
 
-	return assets_details
+    return assets_details
 
 
 def get_columns():

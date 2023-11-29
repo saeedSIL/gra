@@ -26,6 +26,22 @@ frappe.query_reports["Asset Depreciation Ledger"] = {
 			"reqd": 1
 		},
 		{
+			"fieldname":"purchase_date_from",
+			"label": __("Purchase Date From"),
+			"fieldtype": "Date",
+		},
+		{
+			"fieldname":"purchase_date_to",
+			"label": __("Purchase Date To"),
+			"fieldtype": "Date",
+		},
+		{
+			"fieldname": "status",
+			"label": __("Current Status"),
+			"fieldtype": "Select",
+			"options": ["","Scrapped", "Sold", "Partially Depreciated", "Submitted"]
+		},		
+		{
 			"fieldname":"asset",
 			"label": __("Asset"),
 			"fieldtype": "Link",
