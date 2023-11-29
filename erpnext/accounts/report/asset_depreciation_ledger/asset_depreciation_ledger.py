@@ -50,7 +50,7 @@ def get_data(filters):
         return data
 
     assets = [d.against_voucher for d in gl_entries]
-    assets_details = get_assets_details(assets)
+    assets_details = get_assets_details(assets, filters)
 
     for d in gl_entries:
         asset_data = assets_details.get(d.against_voucher)
