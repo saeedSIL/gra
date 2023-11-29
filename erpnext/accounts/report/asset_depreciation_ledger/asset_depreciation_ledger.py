@@ -76,7 +76,7 @@ def get_data(filters):
 
     return data
 
-def get_assets_details(assets):
+def get_assets_details(assets, filters):
     assets_details = {}
 
     fields = [
@@ -88,10 +88,18 @@ def get_assets_details(assets):
         "purchase_date",
     ]
 
-    for d in frappe.get_all("Asset", fields=fields, filters={"name": ("in", assets)}):
+    asset_filters = {
+        "name": ("in", assets),
+        "purchase_date": (">=", filters.get("purchase_date_from")),
+        "purchase_date": ("<=", filters.get("purchase_date_to")),
+        "status": ("=", filters.get("status")),
+    }
+
+    for d in frappe.get_all("Asset", fields=fields, filters=asset_filters):
         assets_details.setdefault(d.asset, d)
 
     return assets_details
+
 
 
 def get_columns():
