@@ -102,7 +102,13 @@ def get_assets_details(assets, filters):
     }
 
     for d in frappe.get_all("Asset", fields=fields, filters=asset_filters):
-        assets_details.setdefault(d.asset, d)
+        # Check if the purchase date is within the specified range
+        purchase_date = frappe.utils.getdate(d.purchase_date)
+        purchase_date_from = frappe.utils.getdate(filters.get("purchase_date_from"))
+        purchase_date_to = frappe.utils.getdate(filters.get("purchase_date_to"))
+
+        if purchase_date_from <= purchase_date <= purchase_date_to:
+            assets_details.setdefault(d.asset, d)
 
     return assets_details
 
