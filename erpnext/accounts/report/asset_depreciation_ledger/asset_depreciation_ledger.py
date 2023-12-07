@@ -55,7 +55,7 @@ def get_data(filters):
 		return data
 
 	assets = [d.against_voucher for d in gl_entries]
-	assets_details = get_assets_details(assets)
+	assets_details = get_assets_details(assets, filters)
 
 	for d in gl_entries:
 		asset_data = assets_details.get(d.against_voucher)
@@ -82,22 +82,36 @@ def get_data(filters):
 	return data
 
 
-def get_assets_details(assets):
-	assets_details = {}
+def get_assets_details(assets, filters):
+    assets_details = {}
 
-	fields = [
-		"name as asset",
-		"gross_purchase_amount",
-		"asset_category",
-		"status",
-		"depreciation_method",
-		"purchase_date",
-	]
+    fields = [
+        "name as asset",
+        "gross_purchase_amount",
+        "asset_category",
+        "status",
+        "depreciation_method",
+        "purchase_date",
+    ]
 
-	for d in frappe.get_all("Asset", fields=fields, filters={"name": ("in", assets)}):
-		assets_details.setdefault(d.asset, d)
+    asset_filters = {
+        "name": ("in", assets),
+        "purchase_date": (">=", filters.get("purchase_date_from")),
+        "purchase_date": ("<=", filters.get("purchase_date_to")),
+        "status": ("=", filters.get("status")),
+    }
 
-	return assets_details
+    for d in frappe.get_all("Asset", fields=fields, filters=asset_filters):
+        # Check if the purchase date is within the specified range
+        purchase_date = frappe.utils.getdate(d.purchase_date)
+        purchase_date_from = frappe.utils.getdate(filters.get("purchase_date_from"))
+        purchase_date_to = frappe.utils.getdate(filters.get("purchase_date_to"))
+
+        if purchase_date_from <= purchase_date <= purchase_date_to:
+            assets_details.setdefault(d.asset, d)
+
+    return assets_details
+
 
 
 def get_columns():
