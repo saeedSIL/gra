@@ -29,11 +29,13 @@ frappe.query_reports["Asset Depreciation Ledger"] = {
 			"fieldname":"purchase_date_from",
 			"label": __("Purchase Date From"),
 			"fieldtype": "Date",
+			"reqd": 1
 		},
 		{
 			"fieldname":"purchase_date_to",
 			"label": __("Purchase Date To"),
 			"fieldtype": "Date",
+			"reqd": 1
 		},
 		{
 			"fieldname": "status",
