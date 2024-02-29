@@ -271,6 +271,8 @@ class AssetRepair(AccountsController):
 				)
 
 	def modify_depreciation_schedule(self):
+		if not hasattr(self,'asset_doc'):
+			self.asset_doc = frappe.get_doc("Asset", self.asset)
 		for row in self.asset_doc.finance_books:
 			row.total_number_of_depreciations += self.increase_in_asset_life / row.frequency_of_depreciation
 
