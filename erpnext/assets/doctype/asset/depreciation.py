@@ -293,12 +293,12 @@ def _make_journal_entry_for_depreciation(
 
 	depr_schedule.db_set("journal_entry", je.name)
 
-	if not je.meta.get_workflow():
-		je.submit()
-		idx = cint(depr_schedule.finance_book_id)
-		finance_books = asset.get("finance_books")[idx - 1]
-		finance_books.value_after_depreciation -= depr_schedule.depreciation_amount
-		finance_books.db_update()
+	# if not je.meta.get_workflow():
+	je.submit()
+	idx = cint(depr_schedule.finance_book_id)
+	finance_books = asset.get("finance_books")[idx - 1]
+	finance_books.value_after_depreciation -= depr_schedule.depreciation_amount
+	finance_books.db_update()
 
 
 def get_depreciation_accounts(asset_category, company):
