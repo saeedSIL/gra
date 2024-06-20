@@ -107,7 +107,7 @@ class SalesInvoice(SellingController):
 		self.set_income_account_for_fixed_assets()
 		self.validate_item_cost_centers()
 		self.check_conversion_rate()
-		self.validate_accounts()
+		# self.validate_accounts()
 
 		validate_inter_company_party(
 			self.doctype, self.customer, self.company, self.inter_company_invoice_reference
@@ -238,6 +238,9 @@ class SalesInvoice(SellingController):
 
 	def before_save(self):
 		set_account_for_mode_of_payment(self)
+
+	def before_submit(self):
+		self.validate_accounts()
 
 	def on_submit(self):
 		self.validate_pos_paid_amount()
